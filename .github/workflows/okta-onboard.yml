@@ -1,0 +1,115 @@
+name: Okta App Onboarding
+
+on:
+  repository_dispatch:
+    types: [servicenow_okta_onboard]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create-okta-app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Print Payload
+        run: |
+          echo "App Type: ${{ github.event.client_payload.app_type }}"
+          echo "Label: ${{ github.event.client_payload.label }}"
+
+      ############################################################
+      # CREATE SAML APPLICATION
+      ############################################################
+      - name: Create SAML App
+        if: github.event.client_payload.app_type == 'saml'
+        run: |
+          curl -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"name\": \"template_saml_2_0\",
+            \"label\": \"${{ github.event.client_payload.label }}\",
+            \"signOnMode\": \"SAML_2_0\",
+            \"settings\": {
+              \"app\": {
+                \"acsUrl\": \"${{ github.event.client_payload.acs_url }}\",
+                \"audience\": \"${{ github.event.client_payload.audience }}\",
+                \"subjectNameIdTemplate\": \"user.email\"
+              }
+            }
+          }"
+
+      ############################################################
+      # CREATE OIDC APPLICATION
+      ############################################################
+      - name: Create OIDC App
+        if: github.event.client_payload.app_type == 'oidc'
+        run: |
+          curl -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"name\": \"oidc_client\",
+            \"label\": \"${{ github.event.client_payload.label }}\",
+            \"signOnMode\": \"OPENID_CONNECT\",
+            \"credentials\": {
+              \"oauthClient\": {
+                \"token_endpoint_auth_method\": \"client_secret_post\"
+              }
+            },
+            \"settings\": {
+              \"oauthClient\": {
+                \"application_type\": \"web\",
+                \"redirect_uris\": ${{
+                  toJson(github.event.client_payload.redirect_uris)
+                }},
+                \"grant_types\": ${{
+                  toJson(github.event.client_payload.grant_types)
+                }},
+                \"response_types\": ${{
+                  toJson(github.event.client_payload.response_types)
+                }}
+              }
+            }
+          }"
+
+      ############################################################
+      # CREATE BOOKMARK APPLICATION
+      ############################################################
+      - name: Create Bookmark App
+        if: github.event.client_payload.app_type == 'bookmark'
+        run: |
+          curl -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"name\": \"bookmark\",
+            \"label\": \"${{ github.event.client_payload.label }}\",
+            \"signOnMode\": \"BOOKMARK\",
+            \"settings\": {
+              \"app\": {
+                \"url\": \"${{ github.event.client_payload.url }}\"
+              }
+            }
+          }"
+
+      ############################################################
+      # CREATE SWA APPLICATION
+      ############################################################
+      - name: Create SWA App
+        if: github.event.client_payload.app_type == 'swa'
+        run: |
+          curl -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"name\": \"template_swa\",
+            \"label\": \"${{ github.event.client_payload.label }}\",
+            \"signOnMode\": \"AUTO_LOGIN\",
+            \"settings\": {
+              \"app\": {
+                \"loginUrl\": \"${{ github.event.client_payload.url }}\"
+              }
+            }
+          }"
