@@ -13,15 +13,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Print payload
+      - name: Print Payload
         run: |
           echo "App Type: ${{ github.event.client_payload.app_type }}"
           echo "Label: ${{ github.event.client_payload.label }}"
 
-      ############################################################
-      # CREATE SAML APPLICATION
-      ############################################################
+      ############################################
+      # SAML APPLICATION
+      ############################################
       - name: Create SAML App
         if: github.event.client_payload.app_type == 'saml'
         run: |
@@ -44,9 +43,9 @@ jobs:
             }
           }"
 
-      ############################################################
-      # CREATE OIDC APPLICATION
-      ############################################################
+      ############################################
+      # OIDC APPLICATION
+      ############################################
       - name: Create OIDC App
         if: github.event.client_payload.app_type == 'oidc'
         run: |
@@ -78,9 +77,9 @@ jobs:
             }
           }"
 
-      ############################################################
-      # CREATE BOOKMARK APPLICATION
-      ############################################################
+      ############################################
+      # BOOKMARK APPLICATION
+      ############################################
       - name: Create Bookmark App
         if: github.event.client_payload.app_type == 'bookmark'
         run: |
@@ -98,9 +97,9 @@ jobs:
             }
           }"
 
-      ############################################################
-      # CREATE SWA APPLICATION
-      ############################################################
+      ############################################
+      # SWA APPLICATION
+      ############################################
       - name: Create SWA App
         if: github.event.client_payload.app_type == 'swa'
         run: |
