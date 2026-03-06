@@ -13,25 +13,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Print Payload
+
+      - name: Print payload
         run: |
           echo "App Type: ${{ github.event.client_payload.app_type }}"
           echo "Label: ${{ github.event.client_payload.label }}"
 
-      ############################################################
+      ############################################
       # CREATE SAML APPLICATION
-      ############################################################
+      ############################################
       - name: Create SAML App
         if: github.event.client_payload.app_type == 'saml'
         run: |
-          curl -v "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          curl -v -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
           -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
           -H "Content-Type: application/json" \
           -d '{
             "label": "'"${{ github.event.client_payload.label }}"'",
             "signOnMode": "SAML_2_0",
+            "visibility": {
+              "autoSubmitToolbar": false,
+              "hide": {
+                "web": false,
+                "iOS": false
+              }
+            },
             "settings": {
-              "app": {
+              "signOn": {
                 "acsUrl": "'"${{ github.event.client_payload.acs_url }}"'",
                 "audience": "'"${{ github.event.client_payload.audience }}"'",
                 "recipient": "'"${{ github.event.client_payload.acs_url }}"'",
@@ -42,13 +50,13 @@ jobs:
             }
           }'
 
-      ############################################################
+      ############################################
       # CREATE OIDC APPLICATION
-      ############################################################
+      ############################################
       - name: Create OIDC App
         if: github.event.client_payload.app_type == 'oidc'
         run: |
-          curl -v "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          curl -v -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
           -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
           -H "Content-Type: application/json" \
           -d '{
@@ -70,13 +78,13 @@ jobs:
             }
           }'
 
-      ############################################################
+      ############################################
       # CREATE BOOKMARK APPLICATION
-      ############################################################
+      ############################################
       - name: Create Bookmark App
         if: github.event.client_payload.app_type == 'bookmark'
         run: |
-          curl -v "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          curl -v -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
           -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
           -H "Content-Type: application/json" \
           -d '{
@@ -90,13 +98,13 @@ jobs:
             }
           }'
 
-      ############################################################
+      ############################################
       # CREATE SWA APPLICATION
-      ############################################################
+      ############################################
       - name: Create SWA App
         if: github.event.client_payload.app_type == 'swa'
         run: |
-          curl -v "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+          curl -v -X POST "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
           -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
           -H "Content-Type: application/json" \
           -d '{
