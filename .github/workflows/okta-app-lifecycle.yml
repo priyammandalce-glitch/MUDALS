@@ -10,14 +10,22 @@ jobs:
 
     steps:
 
-    - name: Checkout Repo
+    #####################################################
+    # CHECKOUT REPO
+    #####################################################
+
+    - name: Checkout Repository
       uses: actions/checkout@v4
+
+    #####################################################
+    # INSTALL jq
+    #####################################################
 
     - name: Install jq
       run: sudo apt-get install jq -y
 
     #####################################################
-    # READ PAYLOAD
+    # PRINT PAYLOAD
     #####################################################
 
     - name: Print Payload
@@ -27,7 +35,7 @@ jobs:
         echo "Label: ${{ github.event.client_payload.label }}"
 
     #####################################################
-    # SEARCH APP
+    # SEARCH APPLICATION IN OKTA
     #####################################################
 
     - name: Search Application
@@ -35,15 +43,19 @@ jobs:
 
         label="${{ github.event.client_payload.label }}"
 
+        encoded=$(printf '%s' "$label" | jq -sRr @uri)
+
         response=$(curl -s \
         -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
-        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps?q=$label")
+        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps?q=$encoded")
 
         echo "$response" > search.json
 
         appId=$(jq -r '.[0].id // empty' search.json)
 
         echo "APP_ID=$appId" >> $GITHUB_ENV
+
+        echo "Found AppID: $appId"
 
     #####################################################
     # CREATE APPLICATION
@@ -155,8 +167,10 @@ jobs:
 
         echo "APP_ID=$newId" >> $GITHUB_ENV
 
+        echo "Created AppID: $newId"
+
     #####################################################
-    # UPDATE APP
+    # UPDATE APPLICATION
     #####################################################
 
     - name: Update Application
@@ -180,7 +194,7 @@ jobs:
         -d "$payload"
 
     #####################################################
-    # ASSIGN GROUPS
+    # GROUP ASSIGNMENT
     #####################################################
 
     - name: Assign Groups
@@ -191,9 +205,12 @@ jobs:
 
         for group in $groups
         do
+
           gid=$(curl -s \
           -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
           "${{ secrets.OKTA_BASE_URL }}/api/v1/groups?q=$group" | jq -r '.[0].id')
+
+          echo "Assigning group $group"
 
           curl -X PUT \
           "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID/groups/$gid" \
@@ -215,13 +232,15 @@ jobs:
 
         for gid in $groups
         do
+          echo "Removing group $gid"
+
           curl -X DELETE \
           "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID/groups/$gid" \
           -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}"
         done
 
     #####################################################
-    # DISABLE APP
+    # DISABLE APPLICATION
     #####################################################
 
     - name: Disable Application
@@ -240,9 +259,14 @@ jobs:
       run: |
 
         mkdir -p logs
+
         now=$(date)
 
         echo "$now | ${{ github.event.client_payload.operation }} | ${{ github.event.client_payload.label }} | $APP_ID" >> logs/app_audit.log
+
+    #####################################################
+    # COMMIT LOG BACK TO REPO
+    #####################################################
 
     - name: Commit Log
       run: |
@@ -251,5 +275,7 @@ jobs:
         git config --global user.name "okta-bot"
 
         git add logs/app_audit.log
+
         git commit -m "Update audit log" || echo "No changes"
+
         git push
