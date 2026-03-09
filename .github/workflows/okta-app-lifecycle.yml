@@ -1,0 +1,255 @@
+name: Okta Application Lifecycle
+
+on:
+  repository_dispatch:
+    types: [servicenow_okta_onboard]
+
+jobs:
+  okta-lifecycle:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+
+    - name: Install jq
+      run: sudo apt-get install jq -y
+
+    #####################################################
+    # READ PAYLOAD
+    #####################################################
+
+    - name: Print Payload
+      run: |
+        echo "Operation: ${{ github.event.client_payload.operation }}"
+        echo "Type: ${{ github.event.client_payload.app_type }}"
+        echo "Label: ${{ github.event.client_payload.label }}"
+
+    #####################################################
+    # SEARCH APP
+    #####################################################
+
+    - name: Search Application
+      run: |
+
+        label="${{ github.event.client_payload.label }}"
+
+        response=$(curl -s \
+        -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps?q=$label")
+
+        echo "$response" > search.json
+
+        appId=$(jq -r '.[0].id // empty' search.json)
+
+        echo "APP_ID=$appId" >> $GITHUB_ENV
+
+    #####################################################
+    # CREATE APPLICATION
+    #####################################################
+
+    - name: Create Application
+      if: github.event.client_payload.operation == 'create'
+      run: |
+
+        if [ -n "$APP_ID" ]; then
+          echo "Application already exists"
+          exit 1
+        fi
+
+        type="${{ github.event.client_payload.app_type }}"
+        label="${{ github.event.client_payload.label }}"
+
+        if [ "$type" = "bookmark" ]; then
+
+          url="${{ github.event.client_payload.url }}"
+
+          payload=$(jq -n \
+          --arg label "$label" \
+          --arg url "$url" \
+          '{
+            name:"bookmark",
+            label:$label,
+            signOnMode:"BOOKMARK",
+            settings:{app:{url:$url}}
+          }')
+
+        elif [ "$type" = "oidc" ]; then
+
+          payload=$(jq -n \
+          --arg label "$label" \
+          --argjson redirect '${{ toJson(github.event.client_payload.redirect_uris) }}' \
+          '{
+            name:"oidc_client",
+            label:$label,
+            signOnMode:"OPENID_CONNECT",
+            credentials:{
+              oauthClient:{
+                token_endpoint_auth_method:"client_secret_post"
+              }
+            },
+            settings:{
+              oauthClient:{
+                application_type:"web",
+                redirect_uris:$redirect,
+                grant_types:["authorization_code"],
+                response_types:["code"]
+              }
+            }
+          }')
+
+        elif [ "$type" = "saml" ]; then
+
+          acs="${{ github.event.client_payload.acs_url }}"
+          audience="${{ github.event.client_payload.audience }}"
+
+          payload=$(jq -n \
+          --arg label "$label" \
+          --arg acs "$acs" \
+          --arg aud "$audience" \
+          '{
+            label:$label,
+            signOnMode:"SAML_2_0",
+            visibility:{autoSubmitToolbar:false,hide:{web:false,iOS:false}},
+            settings:{
+              signOn:{
+                defaultRelayState:"",
+                ssoAcsUrl:$acs,
+                audience:$aud,
+                recipient:$acs,
+                destination:$acs,
+                subjectNameIdTemplate:"${user.email}",
+                subjectNameIdFormat:"urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+                responseSigned:false,
+                assertionSigned:true
+              }
+            }
+          }')
+
+        elif [ "$type" = "swa" ]; then
+
+          url="${{ github.event.client_payload.url }}"
+
+          payload=$(jq -n \
+          --arg label "$label" \
+          --arg url "$url" \
+          '{
+            name:"template_swa",
+            label:$label,
+            signOnMode:"AUTO_LOGIN",
+            settings:{app:{loginUrl:$url}}
+          }')
+
+        fi
+
+        response=$(curl -s -X POST \
+        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps" \
+        -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+        -H "Content-Type: application/json" \
+        -d "$payload")
+
+        echo "$response" > response.json
+
+        newId=$(jq -r '.id' response.json)
+
+        echo "APP_ID=$newId" >> $GITHUB_ENV
+
+    #####################################################
+    # UPDATE APP
+    #####################################################
+
+    - name: Update Application
+      if: github.event.client_payload.operation == 'update'
+      run: |
+
+        if [ -z "$APP_ID" ]; then
+          echo "Application not found"
+          exit 1
+        fi
+
+        url="${{ github.event.client_payload.url }}"
+
+        payload=$(jq -n --arg url "$url" \
+        '{settings:{app:{url:$url}}}')
+
+        curl -X POST \
+        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID" \
+        -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+        -H "Content-Type: application/json" \
+        -d "$payload"
+
+    #####################################################
+    # ASSIGN GROUPS
+    #####################################################
+
+    - name: Assign Groups
+      if: github.event.client_payload.groups
+      run: |
+
+        groups=$(echo '${{ toJson(github.event.client_payload.groups) }}' | jq -r '.[]')
+
+        for group in $groups
+        do
+          gid=$(curl -s \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+          "${{ secrets.OKTA_BASE_URL }}/api/v1/groups?q=$group" | jq -r '.[0].id')
+
+          curl -X PUT \
+          "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID/groups/$gid" \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}"
+        done
+
+    #####################################################
+    # REMOVE GROUPS BEFORE DISABLE
+    #####################################################
+
+    - name: Remove Groups
+      if: github.event.client_payload.operation == 'disable'
+      run: |
+
+        groups=$(curl -s \
+        -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}" \
+        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID/groups" \
+        | jq -r '.[].id')
+
+        for gid in $groups
+        do
+          curl -X DELETE \
+          "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID/groups/$gid" \
+          -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}"
+        done
+
+    #####################################################
+    # DISABLE APP
+    #####################################################
+
+    - name: Disable Application
+      if: github.event.client_payload.operation == 'disable'
+      run: |
+
+        curl -X POST \
+        "${{ secrets.OKTA_BASE_URL }}/api/v1/apps/$APP_ID/lifecycle/deactivate" \
+        -H "Authorization: SSWS ${{ secrets.OKTA_API_TOKEN }}"
+
+    #####################################################
+    # WRITE AUDIT LOG
+    #####################################################
+
+    - name: Write Audit Log
+      run: |
+
+        mkdir -p logs
+        now=$(date)
+
+        echo "$now | ${{ github.event.client_payload.operation }} | ${{ github.event.client_payload.label }} | $APP_ID" >> logs/app_audit.log
+
+    - name: Commit Log
+      run: |
+
+        git config --global user.email "automation@github"
+        git config --global user.name "okta-bot"
+
+        git add logs/app_audit.log
+        git commit -m "Update audit log" || echo "No changes"
+        git push
