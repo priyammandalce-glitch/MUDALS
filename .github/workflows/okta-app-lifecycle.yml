@@ -16,6 +16,7 @@ jobs:
 
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:token: ${{ secrets.GIT_PAT }}
 
     #####################################################
     # INSTALL jq
@@ -278,4 +279,4 @@ jobs:
 
         git commit -m "Update audit log" || echo "No changes"
 
-        git push
+        git push https://x-access-token:${{ secrets.GIT_PAT }}@github.com/priyammandalce-glitch/MUDALS.git
